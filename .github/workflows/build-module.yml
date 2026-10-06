@@ -22,7 +22,8 @@ jobs:
       - name: Update apt & install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bzip2 lib32stdc++6 libc6-dev-i386 libncurses5 jq
+          sudo apt-get install -y bzip2 lib32stdc++6 libc6-dev-i386 libncurses5 jq \
+            gcc-arm-linux-gnueabi
 
       - name: Get Proton Clang 13 toolchain (as Mint build.sh does)
         run: |
