@@ -38,6 +38,14 @@ MODULE_VERSION("0.1.0");
 /* kallsyms_lookup_name экспортируется на 4.14 (EXPORT_SYMBOL_GPL). */
 extern unsigned long kallsyms_lookup_name(const char *name);
 
+/*
+ * sensors_class экспортируется из drivers/sensorhub/sensors_core.c
+ * (EXPORT_SYMBOL_GPL(sensors_class)). Заголовок sensors_core.h живёт внутри
+ * дерева ядра (drivers/sensorhub/), вне exported-заголовков, поэтому для
+ * внешнего модуля объявляем extern сами — это часть стабильного экспорта.
+ */
+extern struct class *sensors_class;
+
 /* Адреса неэкспортированных функций SSP-драйвера, резолвленные в init. */
 static unsigned long ks_ssp_send_command;
 static unsigned long ks_enable_sensor;
