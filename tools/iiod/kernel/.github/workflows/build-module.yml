@@ -1,0 +1,90 @@
+name: Build hdk_probe kernel module (Mint 1413 a50)
+
+# Сборка пробного модуля ядра hdk_probe для Galaxy A50 (Mint Beta 1413,
+# ядро 4.14.194, тег xbeta-1413_a50dx). Модуль собирается против точного
+# исходного дерева ядра и конфига с устройства, чтобы vermagic совпал.
+#
+# Триггеры: вручную (workflow_dispatch) или на push в ветку с именем,
+# начинающимся с hdk/ (для dev-итераций).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "hdk/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel source (Mint xbeta-1413_a50dx)
+        uses: actions/checkout@v3
+        with:
+          ref: xbeta-1413_a50dx
+          fetch-depth: 1
+
+      - name: Update apt & install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bzip2 lib32stdc++6 libc6-dev-i386 libncurses5 jq
+
+      - name: Get Proton Clang 13 toolchain (as Mint build.sh does)
+        run: |
+          mkdir -p "${{ github.workspace }}/toolchain"
+          git clone \
+            'https://gitlab.com/TenSeventy7/exynos9610_toolchains_fresh.git' \
+            "${{ github.workspace }}/toolchain" \
+            --single-branch -b proton --depth 1
+          export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
+          export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
+          clang --version | head -1
+
+      - name: Checkout hdk_probe module sources
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+          path: hdk-module
+          fetch-depth: 1
+
+      - name: Install exact kernel config from the target device
+        # config.gz получен со стенда: adb exec-out cat /proc/config.gz.
+        # Это точный конфиг установленного ядра — гарантирует совпадение
+        # CONFIG_SENSORS_SSP=y, vermagic и LOCALVERSION.
+        run: |
+          mkdir -p "${{ github.workspace }}/.config_dir"
+          cp "${{ github.workspace }}/hdk-module/tools/iiod/kernel/mint-1413.config.gz" .config.gz
+          zcat .config.gz > .config
+          grep -E '^CONFIG_SENSORS_SSP|^CONFIG_IKCONFIG|^CONFIG_MODULES=' .config
+
+      - name: Prepare kernel build tree (modules_prepare)
+        run: |
+          export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
+          export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          make olddefconfig LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -5
+          make -j$(nproc) modules_prepare LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -10
+
+      - name: Build hdk_probe.ko
+        run: |
+          export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
+          export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          make M="${{ github.workspace }}/hdk-module" modules \
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -20
+
+      - name: Verify module
+        run: |
+          ls -la "${{ github.workspace }}/hdk-module/hdk_probe.ko"
+          file "${{ github.workspace }}/hdk-module/hdk_probe.ko" 2>&1 || true
+          strings "${{ github.workspace }}/hdk-module/hdk_probe.ko" | grep -E 'Mint Beta|vermagic' | head -2
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hdk_probe.ko
+          path: "${{ github.workspace }}/hdk-module/hdk_probe.ko"
+          if-no-files-found: error
