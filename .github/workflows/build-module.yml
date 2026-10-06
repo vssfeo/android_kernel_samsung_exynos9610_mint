@@ -1,12 +1,5 @@
 name: Build hdk_probe kernel module (Mint 1413 a50)
 
-# Сборка пробного модуля ядра hdk_probe для Galaxy A50 (Mint Beta 1413,
-# ядро 4.14.194, тег xbeta-1413_a50dx). Модуль собирается против точного
-# исходного дерева ядра и конфига с устройства, чтобы vermagic совпал.
-#
-# Триггеры: вручную (workflow_dispatch) или на push в ветку с именем,
-# начинающимся с hdk/ (для dev-итераций).
-
 on:
   workflow_dispatch:
   push:
@@ -17,11 +10,14 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout kernel source (Mint xbeta-1413_a50dx)
-        uses: actions/checkout@v3
+      - name: Checkout kernel source + hdk module (fork, branch hdk/probe-1413)
+        # Ветка hdk/probe-1413 в форке vssfeo = тег xbeta-1413_a50dx
+        # + tools/iiod/kernel/hdk_probe.c (наш модуль).
+        uses: actions/checkout@v4
         with:
-          ref: xbeta-1413_a50dx
+          ref: hdk/probe-1413
           fetch-depth: 1
+          submodules: recursive   # KernelSU подмодуль (drivers/kernelsu/Kconfig)
 
       - name: Update apt & install dependencies
         run: |
@@ -38,33 +34,27 @@ jobs:
           export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
           export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
           clang --version | head -1
-
-      - name: Checkout hdk_probe module sources
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ github.ref }}
-          path: hdk-module
-          fetch-depth: 1
+          ls "${{ github.workspace }}/toolchain/bin" | grep -E 'aarch64-linux-gnu-(ld|as|objcopy)$'
 
       - name: Install exact kernel config from the target device
-        # config.gz получен со стенда: adb exec-out cat /proc/config.gz.
-        # Это точный конфиг установленного ядра — гарантирует совпадение
-        # CONFIG_SENSORS_SSP=y, vermagic и LOCALVERSION.
+        # Точный конфиг установленного ядра (со стенда, /proc/config.gz).
+        # Лежит рядом с модулем: tools/iiod/kernel/mint-1413.config.gz
         run: |
-          mkdir -p "${{ github.workspace }}/.config_dir"
-          cp "${{ github.workspace }}/hdk-module/tools/iiod/kernel/mint-1413.config.gz" .config.gz
+          cp tools/iiod/kernel/mint-1413.config.gz .config.gz
           zcat .config.gz > .config
-          grep -E '^CONFIG_SENSORS_SSP|^CONFIG_IKCONFIG|^CONFIG_MODULES=' .config
+          grep -E '^CONFIG_SENSORS_SSP|^CONFIG_MODULES=' .config
 
-      - name: Prepare kernel build tree (modules_prepare)
+      - name: Prepare kernel build tree
         run: |
           export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
           export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=clang
-          make olddefconfig LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -5
-          make -j$(nproc) modules_prepare LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -10
+          export CC=clang HOSTCC=clang HOSTCXX=clang++
+          export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
+          export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
+          make olddefconfig LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -6
+          make -j$(nproc) modules_prepare LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -8
 
       - name: Build hdk_probe.ko
         run: |
@@ -72,19 +62,18 @@ jobs:
           export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC=clang
-          make M="${{ github.workspace }}/hdk-module" modules \
-            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -20
-
-      - name: Verify module
-        run: |
-          ls -la "${{ github.workspace }}/hdk-module/hdk_probe.ko"
-          file "${{ github.workspace }}/hdk-module/hdk_probe.ko" 2>&1 || true
-          strings "${{ github.workspace }}/hdk-module/hdk_probe.ko" | grep -E 'Mint Beta|vermagic' | head -2
+          export CC=clang HOSTCC=clang HOSTCXX=clang++
+          export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
+          export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
+          make M="${{ github.workspace }}/tools/iiod/kernel" modules \
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -25
+          ls -la "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
+          # проверка vermagic модуля
+          strings "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko" | grep -E 'vermagic' | head -1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: hdk_probe.ko
-          path: "${{ github.workspace }}/hdk-module/hdk_probe.ko"
+          path: "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
           if-no-files-found: error
