@@ -1,4 +1,4 @@
-# Makefile для внешнего модуля ядра hdk_probe (LOGGER / Helideck).
+# Makefile для внешних модулей ядра LOGGER (Helideck).
 #
 # Сборка выполняется ВНУТРИ дерева исходников Mint (тег xbeta-1413_a50dx),
 # потому что внешний модуль линкуется к заголовкам и генерируемым файлам
@@ -9,7 +9,7 @@
 #        LOCALVERSION=" - Mint Beta 1413" CC=clang HOSTCC=clang HOSTCXX=clang++ \
 #        AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
 
-obj-m += hdk_probe.o
+obj-m += hdk_probe.o hdk_sensor_core.o
 
 # При обычной сборке из корня ядра KDIR задан автоматически.
 # Для standalone-сборки можно указать KDIR=<путь к дереву ядра>.
