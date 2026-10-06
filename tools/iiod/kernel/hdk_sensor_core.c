@@ -60,6 +60,8 @@
 #include <linux/freezer.h>
 #include <linux/spinlock.h>
 #include <linux/utsname.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/rt.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Helideck LOGGER");
@@ -152,6 +154,10 @@ static wait_queue_head_t wq[3];
 static atomic_t stop = ATOMIC_INIT(0);
 static struct mutex enroll_lock;   /* реинициализация каналов */
 static uint32_t reset_count;
+
+/* Таймер обновления частот в кольце (rate_mHz). */
+static void rate_timer_fn(unsigned long unused);
+static struct timer_list rate_timer;
 
 /* ====================== функции драйвера ========================= */
 static int resolve_driver_symbols(void)
@@ -524,7 +530,6 @@ static void rate_timer_fn(unsigned long unused)
     update_rates();
     mod_timer(&rate_timer, jiffies + HZ);
 }
-static struct timer_list rate_timer;
 
 static int __init hdk_sc_init(void)
 {
