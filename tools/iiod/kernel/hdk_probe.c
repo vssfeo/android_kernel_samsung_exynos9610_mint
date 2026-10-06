@@ -28,6 +28,7 @@
 #include <linux/kernel.h>
 #include <linux/kallsyms.h>
 #include <linux/device.h>
+#include <linux/utsname.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Helideck LOGGER");
