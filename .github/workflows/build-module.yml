@@ -64,12 +64,18 @@ jobs:
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang HOSTCC=clang HOSTCXX=clang++
-          export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
+          # ВАЖНО: CC/HOSTCC передаются в командной строке make (как в
+          # build.sh Mint), а не через export: иначе Makefile при отсутствии
+          # CONFIG_CC_IS_CLANG ставит CC=$(CROSS_COMPILE)gcc (которого нет).
           make tmp_exynos9610-a50_hdk_defconfig \
-            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig.log | tail -8
+            CC=clang HOSTCC=clang HOSTCXX=clang++ \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig.log | tail -6
+          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_CC_VERSION_TEXT' .config || true
           make -j$(nproc) modules_prepare \
+            CC=clang HOSTCC=clang HOSTCXX=clang++ \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/prepare.log | tail -8
 
       - name: Build hdk_probe.ko
@@ -80,10 +86,11 @@ jobs:
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang HOSTCC=clang HOSTCXX=clang++
-          export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
+          # CC/HOSTCC/AR передаются в командной строке make (как в build.sh Mint)
           make M="${{ github.workspace }}/tools/iiod/kernel" modules \
+            CC=clang HOSTCC=clang HOSTCXX=clang++ \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -30
           ls -la "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
           # проверка vermagic модуля
