@@ -61,7 +61,7 @@
 #include <linux/spinlock.h>
 #include <linux/utsname.h>
 #include <linux/sched/signal.h>
-#include <linux/sched/rt.h>
+#include <linux/sched/types.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Helideck LOGGER");
