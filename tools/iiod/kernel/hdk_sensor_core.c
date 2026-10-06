@@ -617,7 +617,7 @@ static void __exit hdk_sc_exit(void)
             kthread_stop(thr[i]);
         }
     chan_close_all();
-    if (atomic_read(&has_driver_access))
+    if (has_driver_access)
         /* мягкая уборка: выключим типы */
         for (i = 0; i < 3; i++)
             hdk_enable_type(CH_CFG[i].ssp_type, 0);
