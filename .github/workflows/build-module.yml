@@ -36,16 +36,28 @@ jobs:
           clang --version | head -1
           ls "${{ github.workspace }}/toolchain/bin" | grep -E 'aarch64-linux-gnu-(ld|as|objcopy)$'
 
-      - name: Install exact kernel config from the target device
-        # Точный конфиг установленного ядра (со стенда, /proc/config.gz).
-        # Лежит рядом с модулем: tools/iiod/kernel/mint-1413.config.gz
+      - name: Generate kernel config (as Mint build.sh does)
+        # Реальный релиз 1413 (проверено по конфигу с устройства): oneui-11,
+        # enforcing, root-none. Собираем конфиг точно как build.sh: core_defconfig
+        # + mint-фрагменты. ВАЖНО: не olddefconfig на полупустом /proc/config.gz —
+        # он падает на NEW-опциях (LITTLE_CPU_MASK).
         run: |
-          cp tools/iiod/kernel/mint-1413.config.gz .config.gz
-          zcat .config.gz > .config
-          grep -E '^CONFIG_SENSORS_SSP|^CONFIG_MODULES=' .config
+          set -o pipefail
+          cp arch/arm64/configs/exynos9610-a50_core_defconfig \
+             arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig
+          cat kernel/configs/mint_partial-deknox-11.config \
+              kernel/configs/mint_mali-11.config \
+              kernel/configs/mint_variant_oneui.config \
+              kernel/configs/mint_root-none.config \
+              >> arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig
+          echo 'CONFIG_MINT_PLATFORM_VERSION=11' \
+              >> arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig
+          grep -E 'CONFIG_SENSORS_SSP|CONFIG_MODULES=|CONFIG_KSU' \
+              arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig || true
 
       - name: Prepare kernel build tree
         run: |
+          set -o pipefail
           export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
           export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
           export ARCH=arm64
@@ -53,11 +65,14 @@ jobs:
           export CC=clang HOSTCC=clang HOSTCXX=clang++
           export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
-          make olddefconfig LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -6
-          make -j$(nproc) modules_prepare LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -8
+          make tmp_exynos9610-a50_hdk_defconfig \
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig.log | tail -8
+          make -j$(nproc) modules_prepare \
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/prepare.log | tail -8
 
       - name: Build hdk_probe.ko
         run: |
+          set -o pipefail
           export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
           export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
           export ARCH=arm64
@@ -66,7 +81,7 @@ jobs:
           export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
           make M="${{ github.workspace }}/tools/iiod/kernel" modules \
-            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -25
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -30
           ls -la "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
           # проверка vermagic модуля
           strings "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko" | grep -E 'vermagic' | head -1
