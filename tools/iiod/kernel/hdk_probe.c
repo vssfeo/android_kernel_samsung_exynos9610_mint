@@ -28,7 +28,12 @@
 #include <linux/kernel.h>
 #include <linux/kallsyms.h>
 #include <linux/device.h>
-#include <linux/utsname.h>
+/*
+ * init_uts_ns намеренно НЕ импортируется: на этом ядре символ не
+ * экспортирован, а при CONFIG_MODVERSIONS импорт без экспорта даёт
+ * отказ загрузки модуля (ENOEXEC). Версию ядра при необходимости
+ * читаем из /proc/version в userspace.
+ */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Helideck LOGGER");
@@ -66,7 +71,7 @@ static int __init hdk_probe_init(void)
 	struct device *dev;
 	void *drvdata;
 
-	pr_info("hdk_probe: init, release='%s'\n", init_uts_ns.name.release);
+	pr_info("hdk_probe: init\n");
 
 #define RESOLVE(sym, var) \
 	do { \

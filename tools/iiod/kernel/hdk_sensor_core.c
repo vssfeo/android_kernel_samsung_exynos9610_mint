@@ -70,6 +70,11 @@
 #include <linux/utsname.h>
 #include <linux/cpumask.h>
 #include <linux/atomic.h>
+/*
+ * init_uts_ns намеренно НЕ импортируется: на этом ядре символ не
+ * экспортирован, а при CONFIG_MODVERSIONS импорт без экспорта даёт
+ * отказ загрузки модуля (ENOEXEC). Версию ядра читаем из userspace.
+ */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Helideck LOGGER");
@@ -118,7 +123,6 @@ struct hdk_stats {
     uint32_t hub_working;
     uint32_t ch_open[3];
     uint32_t driver_ok;
-    char     release[64];
 };
 
 /* ===================== символы SSP-драйвера ====================== */
@@ -533,7 +537,6 @@ static long hdk_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             st.hub_working = fn_is_working(ssp_data) ? 1 : 0;
         for (i = 0; i < 3; i++)
             st.ch_open[i] = CH_CFG[i].opened ? 1 : 0;
-        strlcpy(st.release, init_uts_ns.name.release, sizeof(st.release));
         if (copy_to_user((void __user *)arg, &st, sizeof(st)))
             return -EFAULT;
         return 0;
@@ -560,7 +563,7 @@ static int __init hdk_sc_init(void)
 {
     int i, rc;
 
-    pr_info("hdk_sc: init, ядро '%s'\n", init_uts_ns.name.release);
+    pr_info("hdk_sc: init\n");
 
     ring_bytes = PAGE_ALIGN(sizeof(struct hdk_ring) +
                              HDK_RING_CAP * sizeof(struct hdk_frame));
