@@ -118,6 +118,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hdk_probe.ko
-          path: "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
+          name: hdk-kernel-modules
+          path: |
+            "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
+            "${{ github.workspace }}/tools/iiod/kernel/hdk_sensor_core.ko"
           if-no-files-found: error
