@@ -120,6 +120,6 @@ jobs:
         with:
           name: hdk-kernel-modules
           path: |
-            "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
-            "${{ github.workspace }}/tools/iiod/kernel/hdk_sensor_core.ko"
+            tools/iiod/kernel/hdk_probe.ko
+            tools/iiod/kernel/hdk_sensor_core.ko
           if-no-files-found: error
