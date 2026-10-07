@@ -437,6 +437,7 @@ static void reenroll_channels(void)
 /* ======================== watchdog =============================== */
 static void wd_fn(struct work_struct *work)
 {
+    struct delayed_work *dwork = to_delayed_work(work);
     static unsigned long silent_since;
     uint64_t any = 0;
     int i;
@@ -457,11 +458,14 @@ static void wd_fn(struct work_struct *work)
         silent_since = 0;
     }
     if (!atomic_read(&stop))
-        schedule_delayed_work(work, 2 * HZ);
+        schedule_delayed_work(dwork, 2 * HZ);
 }
 static DECLARE_DELAYED_WORK(wd_work, wd_fn);
 
 /* ===================== частоты в кольце ========================== */
+static void rate_timer_fn(unsigned long unused);
+static struct timer_list rate_timer;
+
 static void rate_timer_fn(unsigned long unused)
 {
     static uint64_t last[3];
@@ -485,7 +489,6 @@ out:
     if (!atomic_read(&stop))
         mod_timer(&rate_timer, jiffies + HZ);
 }
-static struct timer_list rate_timer;
 
 /* ===================== mmap: безопасно на vzalloc ================= */
 static int hdk_mmap(struct file *file, struct vm_area_struct *vma)
@@ -611,8 +614,17 @@ static int __init hdk_sc_init(void)
             sched_setscheduler_nocheck(thr[i], SCHED_FIFO, &sp);
         }
 #endif
-        /* привязать к своему ядру, чтобы три потока не толкались */
-        set_cpus_allowed_ptr(thr[i], cpumask_of(i));
+        /* Привязать к своему ядру, чтобы три потока не толкались.
+         * sched_setaffinity вместо set_cpus_allowed_ptr(cpumask_of()):
+         * cpumask_of требует CONFIG_CPUMASK_OFFSTACK, которого в конфиге
+         * этого ядра нет. Маску собираем вручную. */
+        {
+            cpumask_t mask;
+            int cpu = i % 4;   /* Exynos 9610: 4×A53 + 4×A73 */
+            cpumask_clear(&mask);
+            cpu_set(cpu, &mask);
+            sched_setaffinity(thr[i], sizeof(mask), &mask);
+        }
     }
 
     schedule_delayed_work(&wd_work, 2 * HZ);
