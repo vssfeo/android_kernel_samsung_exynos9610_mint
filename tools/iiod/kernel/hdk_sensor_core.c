@@ -147,7 +147,6 @@ struct hdk_chan {
 static struct hdk_ring *ring;
 static struct hdk_frame *ring_frames;
 static struct ssp_data *ssp_data;
-static struct class *ssp_dev_class;
 
 static struct task_struct *thr[3];
 static wait_queue_head_t wq[3];
