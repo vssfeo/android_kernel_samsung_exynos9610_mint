@@ -37,24 +37,19 @@ jobs:
           clang --version | head -1
           ls "${{ github.workspace }}/toolchain/bin" | grep -E 'aarch64-linux-gnu-(ld|as|objcopy)$'
 
-      - name: Generate kernel config (as Mint build.sh does)
-        # Реальный релиз 1413 (проверено по конфигу с устройства): oneui-11,
-        # enforcing, root-none. Собираем конфиг точно как build.sh: core_defconfig
-        # + mint-фрагменты. ВАЖНО: не olddefconfig на полупустом /proc/config.gz —
-        # он падает на NEW-опциях (LITTLE_CPU_MASK).
+      - name: Generate kernel config (exact config of the device + fixes)
+        # Используем ТОЧНЫЙ конфиг установленного ядра (/proc/config.gz со
+        # стенда, файл tools/iiod/kernel/mint-1413.config.gz). Он содержит
+        # CONFIG_LTO_NONE=y — модуль должен собираться БЕЗ LTO, иначе
+        # ядро без LTO отвергнет LTO-модуль (Exec format error).
+        # Дополняем недостающие опции, которые olddefconfig спрашивает как (NEW):
+        # CONFIG_LITTLE_CPU_MASK из core_defconfig (=15).
         run: |
           set -o pipefail
-          cp arch/arm64/configs/exynos9610-a50_core_defconfig \
-             arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig
-          cat kernel/configs/mint_partial-deknox-11.config \
-              kernel/configs/mint_mali-11.config \
-              kernel/configs/mint_variant_oneui.config \
-              kernel/configs/mint_root-none.config \
-              >> arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig
-          echo 'CONFIG_MINT_PLATFORM_VERSION=11' \
-              >> arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig
-          grep -E 'CONFIG_SENSORS_SSP|CONFIG_MODULES=|CONFIG_KSU' \
-              arch/arm64/configs/tmp_exynos9610-a50_hdk_defconfig || true
+          cp tools/iiod/kernel/mint-1413.config.gz .config.gz
+          zcat .config.gz > .config
+          echo 'CONFIG_LITTLE_CPU_MASK=15' >> .config
+          grep -E '^CONFIG_MODULES=|^CONFIG_LTO|^CONFIG_LTO_NONE|^CONFIG_LITTLE_CPU_MASK' .config
 
       - name: Prepare kernel build tree
         run: |
@@ -68,11 +63,11 @@ jobs:
           # ВАЖНО: CC/HOSTCC передаются в командной строке make (как в
           # build.sh Mint), а не через export: иначе Makefile при отсутствии
           # CONFIG_CC_IS_CLANG ставит CC=$(CROSS_COMPILE)gcc (которого нет).
-          make tmp_exynos9610-a50_hdk_defconfig \
+          make olddefconfig \
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig.log | tail -6
-          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_CC_VERSION_TEXT' .config || true
+          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_LTO|^CONFIG_LTO_NONE' .config || true
           make -j$(nproc) modules_prepare \
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
