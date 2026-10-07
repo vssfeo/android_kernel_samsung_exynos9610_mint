@@ -37,15 +37,17 @@ jobs:
           clang --version | head -1
           ls "${{ github.workspace }}/toolchain/bin" | grep -E 'aarch64-linux-gnu-(ld|as|objcopy)$'
 
-      - name: Generate kernel config (exact device config)
+      - name: Generate kernel config (device config + core overlay)
         # exynos9610-a50_default_defconfig ПОБАЙТОВО совпадает с /proc/config.gz
-        # со стенда (проверено: 5758 строк, 0 различий). Он содержит
-        # CONFIG_LTO_NONE=y — модуль обязан собираться без LTO, иначе ядро
-        # без LTO отвергнет LTO-модуль (Exec format error).
+        # со стенда (5758 строк, 0 различий) и содержит CONFIG_LTO_NONE=y.
+        # core_defconfig добавляет недостающие опции (LITTLE/BIG_CPU_MASK),
+        # которые ядро реально использует (8 ядер: 4 LITTLE + 4 BIG).
+        # Порядок: сначала default, поверх — core (core важнее).
         run: |
           set -o pipefail
-          cp arch/arm64/configs/exynos9610-a50_default_defconfig .config
-          grep -E '^CONFIG_LTO_NONE|^CONFIG_ARM64_VA_BITS=|^CONFIG_MODULES=' .config
+          cat arch/arm64/configs/exynos9610-a50_default_defconfig > .config
+          cat arch/arm64/configs/exynos9610-a50_core_defconfig >> .config
+          grep -E '^CONFIG_LTO_NONE|^CONFIG_ARM64_VA_BITS=|^CONFIG_LITTLE_CPU_MASK|^CONFIG_BIG_CPU_MASK|^CONFIG_MODULES=' .config
 
       - name: Prepare kernel build tree
         run: |
@@ -59,11 +61,29 @@ jobs:
           # ВАЖНО: CC/HOSTCC передаются в командной строке make (как в
           # build.sh Mint), а не через export: иначе Makefile при отсутствии
           # CONFIG_CC_IS_CLANG ставит CC=$(CROSS_COMPILE)gcc (которого нет).
-          make exynos9610-a50_default_defconfig \
+          make olddefconfig \
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig.log | tail -6
-          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_LTO_NONE|^CONFIG_ARM64_VA_BITS=' .config || true
+          # NEW-опции (их нет ни в одном дефконфиге) — добираем из core_defconfig.
+          grep -oE '[A-Za-z0-9_]+ \(NEW\)' /tmp/defconfig.log | sed 's/ (NEW)//' | sort -u > /tmp/new_syms.txt || true
+          if [ -s /tmp/new_syms.txt ]; then
+            echo "NEW-символы: $(tr '\n' ' ' < /tmp/new_syms.txt)"
+            while read -r sym; do
+              [ -z "$sym" ] && continue
+              val=$(grep -E "^CONFIG_${sym}=" arch/arm64/configs/exynos9610-a50_core_defconfig | tail -1)
+              if [ -n "$val" ]; then
+                echo "$val" >> .config; echo "дописано: $val"
+              else
+                echo "!! нет значения для CONFIG_${sym}"; exit 1
+              fi
+            done < /tmp/new_syms.txt
+            make olddefconfig \
+              CC=clang HOSTCC=clang HOSTCXX=clang++ \
+              AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+              LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig2.log | tail -4
+          fi
+          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_LTO_NONE|^CONFIG_LITTLE_CPU_MASK|^CONFIG_BIG_CPU_MASK' .config || true
           make -j$(nproc) modules_prepare \
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
