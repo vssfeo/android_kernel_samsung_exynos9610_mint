@@ -504,7 +504,8 @@ static int hdk_mmap(struct file *file, struct vm_area_struct *vma)
 
     vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
     vma->vm_page_prot = PAGE_SHARED;
-    return remap_vmalloc_range(vma, (unsigned long)ring, size);
+    /* remap_vmalloc_range принимает void* в этой версии ядра */
+    return remap_vmalloc_range(vma, ring, size);
 }
 
 static long hdk_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -615,14 +616,14 @@ static int __init hdk_sc_init(void)
         }
 #endif
         /* Привязать к своему ядру, чтобы три потока не толкались.
-         * sched_setaffinity вместо set_cpus_allowed_ptr(cpumask_of()):
-         * cpumask_of требует CONFIG_CPUMASK_OFFSTACK, которого в конфиге
-         * этого ядра нет. Маску собираем вручную. */
+         * Используем sched_setaffinity + set_bit напрямую: cpumask_of()
+         * требует CONFIG_CPUMASK_OFFSTACK (нет в конфиге этого ядра),
+         * а cpu_set() в этой версии ядра имеет другую сигнатуру. */
         {
             cpumask_t mask;
             int cpu = i % 4;   /* Exynos 9610: 4×A53 + 4×A73 */
             cpumask_clear(&mask);
-            cpu_set(cpu, &mask);
+            set_bit(cpu, &mask);
             sched_setaffinity(thr[i], sizeof(mask), &mask);
         }
     }
