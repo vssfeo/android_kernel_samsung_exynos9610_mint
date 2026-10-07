@@ -48,8 +48,11 @@ jobs:
           set -o pipefail
           cp tools/iiod/kernel/mint-1413.config.gz .config.gz
           zcat .config.gz > .config
+          # В /proc/config.gz отсутствуют CPU-маски (их опрашивает как NEW).
+          # Берём значения из core_defconfig того же дерева.
           echo 'CONFIG_LITTLE_CPU_MASK=15' >> .config
-          grep -E '^CONFIG_MODULES=|^CONFIG_LTO|^CONFIG_LTO_NONE|^CONFIG_LITTLE_CPU_MASK' .config
+          echo 'CONFIG_BIG_CPU_MASK=240'    >> .config
+          grep -E '^CONFIG_MODULES=|^CONFIG_LTO_NONE|^CONFIG_LITTLE_CPU_MASK|^CONFIG_BIG_CPU_MASK' .config
 
       - name: Prepare kernel build tree
         run: |
@@ -67,7 +70,27 @@ jobs:
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig.log | tail -6
-          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_LTO|^CONFIG_LTO_NONE' .config || true
+          # Если olddefconfig споткнулся о NEW-опцию, берём её значение из
+          # core_defconfig того же дерева и повторяем. Конфиг стенда не
+          # содержит часть опций, хотя ядро собрано и работает.
+          grep -oE '[A-Za-z0-9_]+ \(NEW\)' /tmp/defconfig.log | sed 's/ (NEW)//' | sort -u > /tmp/new_syms.txt || true
+          if [ -s /tmp/new_syms.txt ]; then
+            echo "NEW-символы: $(tr '\n' ' ' < /tmp/new_syms.txt)"
+            while read -r sym; do
+              [ -z "$sym" ] && continue
+              val=$(grep -E "^CONFIG_${sym}=" arch/arm64/configs/exynos9610-a50_core_defconfig | tail -1)
+              if [ -n "$val" ]; then
+                echo "$val" >> .config; echo "дописано: $val"
+              else
+                echo "!! нет значения для CONFIG_${sym}"; exit 1
+              fi
+            done < /tmp/new_syms.txt
+            make olddefconfig \
+              CC=clang HOSTCC=clang HOSTCXX=clang++ \
+              AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+              LOCALVERSION=" - Mint Beta 1413" 2>&1 | tee /tmp/defconfig2.log | tail -4
+          fi
+          grep -E '^CONFIG_CC_IS_CLANG|^CONFIG_LTO_NONE|^CONFIG_LITTLE_CPU_MASK|^CONFIG_BIG_CPU_MASK' .config || true
           make -j$(nproc) modules_prepare \
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
