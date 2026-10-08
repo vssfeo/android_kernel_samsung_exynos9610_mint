@@ -603,7 +603,13 @@ static int __init hdk_sc_init(void)
     reenroll_channels();
 
     for (i = 0; i < 3; i++) {
-        thr[i] = kthread_run(chan_thread, (void *)(long)i, "hdk_sc%d", i);
+        /*
+         * kthread_create_on_cpu() создаёт поток сразу на нужном ядре —
+         * это штатный способ привязки без cpumask_of()/set_bit()/sched_setaffinity
+         * (их сигнатуры в этом ядре отличаются от документированных).
+         */
+        thr[i] = kthread_create_on_cpu(chan_thread, (void *)(long)i,
+                                       i % 4, "hdk_sc%d", i);
         if (IS_ERR(thr[i])) {
             thr[i] = NULL;
             pr_err("hdk_sc: поток %d не создан: %ld\n", i, PTR_ERR(thr[i]));
@@ -615,17 +621,7 @@ static int __init hdk_sc_init(void)
             sched_setscheduler_nocheck(thr[i], SCHED_FIFO, &sp);
         }
 #endif
-        /* Привязать к своему ядру, чтобы три потока не толкались.
-         * Используем sched_setaffinity + set_bit напрямую: cpumask_of()
-         * требует CONFIG_CPUMASK_OFFSTACK (нет в конфиге этого ядра),
-         * а cpu_set() в этой версии ядра имеет другую сигнатуру. */
-        {
-            cpumask_t mask;
-            int cpu = i % 4;   /* Exynos 9610: 4×A53 + 4×A73 */
-            cpumask_clear(&mask);
-            set_bit(cpu, &mask);
-            sched_setaffinity(thr[i], sizeof(mask), &mask);
-        }
+        wake_up_process(thr[i]);
     }
 
     schedule_delayed_work(&wd_work, 2 * HZ);
