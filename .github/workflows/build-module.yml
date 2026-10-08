@@ -108,7 +108,31 @@ jobs:
           ls -la Module.symvers
           head -5 Module.symvers
 
-      - name: Build hdk_probe.ko
+      - name: Build hdk_min.ko (decisive ENOEXEC bisection)
+        # Собирается ПЕРВЫМ и ОТДЕЛЬНО, потому что hdk_min не импортирует ни
+        # одного внешнего символа. Это решающий артефакт: если и он не грузится,
+        # внешние модули на этом ядре невозможны (см. docs §7 ГЕЙТ 0).
+        # Он не должен зависеть от успеха hdk_sensor_core.
+        run: |
+          set -o pipefail
+          export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
+          export LD_LIBRARY_PATH="${{ github.workspace }}/toolchain/lib:$LD_LIBRARY_PATH"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export ANDROID_MAJOR_VERSION=r PLATFORM_VERSION=11.0.0
+          make M="${{ github.workspace }}/tools/iiod/kernel" modules \
+            HDK_MODULES=hdk_min \
+            CC=clang HOSTCC=clang HOSTCXX=clang++ \
+            AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -30
+          ls -la "${{ github.workspace }}/tools/iiod/kernel/hdk_min.ko"
+          strings "${{ github.workspace }}/tools/iiod/kernel/hdk_min.ko" | grep -E 'vermagic' | head -1
+
+      - name: Build all hdk modules
+        # hdk_sensor_core может ещё не компилироваться — это не должно
+        # блокировать выгрузку уже собранного hdk_min.
+        continue-on-error: true
         run: |
           set -o pipefail
           export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
@@ -121,16 +145,19 @@ jobs:
           make M="${{ github.workspace }}/tools/iiod/kernel" modules \
             CC=clang HOSTCC=clang HOSTCXX=clang++ \
             AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -30
-          ls -la "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko"
-          # проверка vermagic модуля
-          strings "${{ github.workspace }}/tools/iiod/kernel/hdk_probe.ko" | grep -E 'vermagic' | head -1
+            LOCALVERSION=" - Mint Beta 1413" 2>&1 | tail -40
+          ls -la "${{ github.workspace }}/tools/iiod/kernel/"*.ko
 
       - name: Upload artifact
+        # always(): артефакт нужен даже при падении поздних шагов — именно
+        # частично собранные .ko и есть результат сессии.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hdk-kernel-modules
           path: |
+            tools/iiod/kernel/hdk_min.ko
             tools/iiod/kernel/hdk_probe.ko
             tools/iiod/kernel/hdk_sensor_core.ko
-          if-no-files-found: error
+            tools/iiod/kernel/Module.symvers
+          if-no-files-found: warn

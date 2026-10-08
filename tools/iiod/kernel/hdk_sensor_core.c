@@ -604,12 +604,20 @@ static int __init hdk_sc_init(void)
 
     for (i = 0; i < 3; i++) {
         /*
-         * kthread_create_on_cpu() создаёт поток сразу на нужном ядре —
-         * это штатный способ привязки без cpumask_of()/set_bit()/sched_setaffinity
+         * kthread_create_on_cpu() создаёт поток сразу на нужном ядре — это
+         * штатный способ привязки без cpumask_of()/set_bit()/sched_setaffinity
          * (их сигнатуры в этом ядре отличаются от документированных).
+         *
+         * ВНИМАНИЕ: в include/linux/kthread.h этого ядра kthread_create_on_cpu()
+         * принимает РОВНО 4 аргумента и, в отличие от kthread_create()/
+         * kthread_run(), НЕ имеет varargs «namefmt, ##arg». Имя обязано быть
+         * готовой строкой, поэтому склеиваем его заранее.
          */
+        char nm[16];
+
+        snprintf(nm, sizeof(nm), "hdk_sc%d", i);
         thr[i] = kthread_create_on_cpu(chan_thread, (void *)(long)i,
-                                       i % 4, "hdk_sc%d", i);
+                                       i % 4, nm);
         if (IS_ERR(thr[i])) {
             thr[i] = NULL;
             pr_err("hdk_sc: поток %d не создан: %ld\n", i, PTR_ERR(thr[i]));
